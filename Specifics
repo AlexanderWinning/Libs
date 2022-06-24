@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: UNLICENSED
+
+pragma solidity ^0.8.0;
+
+import "./ERC721Enumerable.sol";
+import "./Ownable.sol";
+import "./ReentrancyGuard.sol";
+import "./Counters.sol";
+import "./Strings.sol";
+
+contract NFTMinter is ERC721Enumerable, Ownable, ReentrancyGuard {
+    using Counters for Counters.Counter;
+    using Strings for uint256;
+    uint256 public constant MaxNFTS = 10000; // 10000 NFTS are set to be created
+    uint256 public constant PurchaseLimit = 5; // Proposed limit of 5 
+    uint256 public constant Price = 100000000000000000; // 0.1 ETH
+    uint256 public constant WLPrice = 80000000000000000; // 0.08 ETH
+    string private tokenBaseURI = "";
+    bool private MainActive = false; // Mint toggle
+    bool public WhiteListActive = false; // Whitelist mint tooggle
+    
+    mapping(address => bool) private _WhiteList; // List of addresses with an identifier for whether they are whitelisted or not 
+    mapping(address => bool) private _WhiteListClaimed; // Whitelist claimed or not 
+
+    Counters.Counter private _publicNFTS;
+
+    constructor() ERC721("NFTS", "PV") {
+
+    }
+
+    // Starts main mint 
+    function setMainActive(bool isActive) external onlyOwner {
+        MainActive = isActive;
+    }
+
+    // Sets base url
+    function setBaseURI(string memory URI) external onlyOwner {
+        tokenBaseURI = URI;
+    }
+
+    // Owner minting
+    function OwnerReserveMinting()external onlyOwner{
+        require(_publicNFTS.current() + 10 < MaxNFTS, "Ya Missed it bud");
+        for (uint256 i = 0; i < 10; i++) {
+            uint256 tokenId = _publicNFTS.current();
+            _publicNFTS.increment();
+            _safeMint(msg.sender, tokenId);
+        }
+    }
+
+    // Starts whitelist mint
+    function setWhiteListActive(bool _WhiteListActive) external onlyOwner {
+        WhiteListActive = _WhiteListActive;
+    }
+      
+    // Function used to add addresses to the whitelist
+    function addToWhiteList(address[] calldata addresses) external onlyOwner {
+        for (uint256 i = 0; i < addresses.length; i++) {
+            require(addresses[i] != address(0), "What are you trying to do");
+            _WhiteList[addresses[i]] = true;
+            /**
+            * @dev We don't want to reset _WhiteListClaimed count
+            * if we try to add someone more than once.
+            */
+            _WhiteListClaimed[addresses[i]] != true ? _WhiteListClaimed[addresses[i]] : false;
+        }
+    }
+     
+    // Function to check if a users whitelist is claimed
+    function WhiteListClaimedBy(address owner) external view returns (bool){
+        require(owner != address(0), "Wait the zero address isnt getting in on this");
+        return _WhiteListClaimed[owner];
+    }
+    
+    // Function to check if an address is on the whitelist
+    function onWhiteList(address addr) external view returns (bool) {
+        return _WhiteList[addr];
+    }
+    
+    // Function used to remove an address from the whitelist
+    function removeFromWhiteList(address[] calldata addresses) external onlyOwner {
+        for (uint256 i = 0; i < addresses.length; i++) {
+          require(addresses[i] != address(0), "No shit");
+          /// @dev We don't want to reset possible _WhiteListClaimed numbers.
+          _WhiteList[addresses[i]] = false;
+        }
+    }
+    
+    // Whitelist minting function
+    function purchaseWhiteList() external payable nonReentrant{        
+        require(WhiteListActive, "WhiteList is not active");
+        require(_WhiteList[msg.sender], "You are not on the WhiteList");
+        require(_publicNFTS.current() < MaxNFTS, "Purchase would exceed max NFTS");
+        require(WLPrice <= msg.value, "ETH amount is not sufficient");
+        uint256 tokenId = _publicNFTS.current();
+        _publicNFTS.increment();
+        _WhiteListClaimed[msg.sender] = true;
+        _safeMint(msg.sender, tokenId);        
+        
+    }
+
+    // Regular minting function
+    function purchase(uint256 numberOfTokens) external payable nonReentrant {
+        require(MainActive, "Contract is not active");
+        require(numberOfTokens <= PurchaseLimit, "Can only mint up to 10 tokens");
+        require(_publicNFTS.current() + numberOfTokens < MaxNFTS, "Purchase would exceed max NFTS");
+        require(Price * numberOfTokens <= msg.value, "ETH amount is not sufficient");
+        for (uint256 i = 0; i < numberOfTokens; i++) {
+            uint256 tokenId = _publicNFTS.current();
+            _publicNFTS.increment();
+            _safeMint(msg.sender, tokenId);
+        }
+    }
+
+    // Function used to request the URI of a certain token
+    function tokenURI(uint256 tokenId) public view override(ERC721) returns (string memory){
+        require(_exists(tokenId), "Token does not exist");
+        return string(abi.encodePacked(tokenBaseURI, tokenId.toString()));
+    }
+
+    // Function used to withdraw ETH from the contract
+    function withdraw() external onlyOwner {
+        uint256 balance = address(this).balance;
+        payable(msg.sender).transfer(balance);
+    }
+}
